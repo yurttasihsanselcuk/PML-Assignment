@@ -1,0 +1,180 @@
+---
+title: "Practical Machine Learning- Peer Graded Assignment"
+author: "ISY"
+date: "1/17/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE)
+```
+
+# Part 0: Setup
+
+```{r}
+library(caret)
+library(rpart)
+library(randomForest)
+library(gbm)
+library(rattle)
+```
+
+
+# Part 1: Loading data
+
+In this assignment, we will be working on a prediction model on a variable with given datasets. We will first download and
+upload datasets to our R environment
+
+```{r}
+url_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_valid <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+download.file(url_train, destfile = paste0(getwd(), "/", "train_data.csv"))
+download.file(url_valid, destfile = paste0(getwd(), "/", "valid_data.csv"))
+
+train <- read.csv(paste0(getwd(), "/", "train_data.csv"))
+valid <- read.csv(paste0(getwd(), "/", "valid_data.csv"))
+```
+
+Our goal is to create a model to predict "classe" variable. Since we have downloaded our datasets, we will first clean our data. We will start by removing case-identifying variables.
+
+```{r}
+train <- train[, -(1:5)]
+valid <- valid[, -(1:5)]
+```
+
+Since we have some variables that NA or missing value proportion is high, we will remove those variables.
+
+```{r}
+var2rm_train <- c()
+
+for (i in 1:ncol(train)) {
+     if (sum(is.na(train[[i]]))/nrow(train)> 0.9 | sum(train[i] == "")/nrow(train) > 0.9) 
+     {
+          var2rm_train <- c(var2rm_train, i)
+     }
+}
+
+var2rm_train <- unique(var2rm_train)
+
+# Same for test valid data
+
+var2rm_valid <- c()
+
+for (i in 1:ncol(valid)) {
+     if (sum(is.na(valid[[i]]))/nrow(valid)> 0.9 | sum(valid[i] == "")/nrow(valid) > 0.9) 
+     {
+          var2rm_valid <- c(var2rm_valid, i)
+     }
+}
+
+var2rm_valid <- unique(var2rm_valid)
+
+train <- train[, -var2rm_train]
+valid <- valid[, -var2rm_valid]
+
+#
+```
+
+
+# Part 2: Preparing Data For Prediction
+
+We will divide our *train* data into train and test data.
+
+```{r}
+set.seed(33245)
+inTrain <- createDataPartition(train$classe, p = 0.7, list = FALSE)
+trainData <- train[inTrain,]
+testData  <- train[-inTrain,]
+```
+
+
+# Part 3: Modelling
+
+In order to avoid overfitting as much as possible, we will use **cross-validation** technique. We will use 5 folds for memory efficiency.
+
+We will test 3 different modelling method: "classification tree", "random forest" and "boosting". At the end, we will check if it is feasible to combine all models.
+
+```{r}
+fit1 <- train(factor(classe)~., data=trainData, method = "rpart", trControl = trainControl(method = "cv", number = 5))
+fancyRpartPlot(fit1$finalModel)
+```
+```{r}
+pred1 <- predict(fit1, testData)
+cfmatrix1 <- confusionMatrix(factor(testData$classe), pred1)
+cfmatrix1$table
+```
+```{r}
+cfmatrix1$overall[1]
+```
+
+Moving onto the random forest method.
+
+```{r}
+fit2 <- train(factor(classe)~., data=trainData, method = "rf", 
+              trControl = trainControl(method = "cv", number = 5), verbose=FALSE)
+fit2$finalModel
+```
+
+```{r}
+plot(fit2$finalModel)
+```
+
+
+```{r}
+pred2 <- predict(fit2, testData)
+cfmatrix2 <- confusionMatrix(factor(testData$classe), pred2)
+cfmatrix2$overall[1]
+```
+
+We will move forward with boosting method.
+
+```{r}
+fit3 <- train(classe ~ ., data=trainData, method = "gbm", 
+              trControl = trainControl(method = "cv", number = 5), verbose=FALSE)
+fit3
+```
+
+```{r}
+plot(fit3)
+```
+```{r}
+pred3 <- predict(fit3, testData)
+cfmatrix3 <- confusionMatrix(factor(testData$classe), pred3)
+cfmatrix3$table
+```
+
+```{r}
+cfmatrix3$overall[1]
+```
+
+```{r}
+combpred <- data.frame(pred1,pred2,pred3,classe = testData$classe)
+fitcomb <- train(classe~., combpred, trControl = trainControl(method = "cv", number=5))
+pred_comb <- predict(fitcomb, testData)
+
+cfmatrix_comb <- confusionMatrix(factor(testData$classe),pred_comb)
+cfmatrix_comb
+```
+
+```{r}
+plot(fitcomb)
+```
+
+As seen from the plot, combined method is overfitting after 7 predictors. We will stick with the second method, which is* *random forest*.
+
+# Part 5: Checking for validation data
+
+```{r}
+predict(fit2, valid)
+```
+
+# Conclusion
+
+- To create models, we have divided given training dataset into training and testing. 
+- We have first decided to use three different modeliing methods and created models with each method.
+- While creating models, cross-validation with 5-folds were used to lower bias.
+- After creating each model, we have combined all methods to see if we could come up with a better model. We have seen that combined model had been overfitting so we decided to use second method to predict validating dataset.
+
+Reference for data: HAR. (n.d.). Retrieved January 17, 2021, from [link][http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har]
+
